@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Particle Galaxy</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  }
+  canvas { display: block; }
+  .overlay {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .overlay h1 {
+    font-size: clamp(2rem, 6vw, 5rem);
+    font-weight: 300;
+    letter-spacing: 0.15em;
+    color: rgba(255,255,255,0.9);
+    text-shadow: 0 0 40px rgba(140,120,255,0.5), 0 0 80px rgba(100,160,255,0.3);
+    animation: breathe 2.8s ease-in-out infinite;
+  }
+  .overlay p {
+    margin-top: 1rem;
+    font-size: clamp(0.8rem, 1.5vw, 1.1rem);
+    letter-spacing: 0.3em;
+    color: rgba(180,200,255,0.5);
+    text-shadow: 0 0 20px rgba(120,140,220,0.3);
+    animation: breathe 2.8s ease-in-out infinite 0.4s;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.4; transform: scale(0.94); }
+    50% { opacity: 1; transform: scale(1.06); }
+  }
+  .hint {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.2);
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 1.5s;
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay">
+  <h1>星辰星云</h1>
+  <p>拖拽探索 &middot; 滚轮缩放</p>
+</div>
+<div class="hint" id="hint">&#x1F5B1; 拖拽旋转 &amp; 滚轮缩放</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+var hint = document.getElementById('hint');
+var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x030308);
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+var scene = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 120);
+camera.position.set(0, 9, 20);
+
+var controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.25;
+controls.minDistance = 4;
+controls.maxDistance = 45;
+controls.maxPolarAngle = Math.PI * 0.7;
+controls.target.set(0, 0, 0);
+controls.update();
+
+function createGlowTexture(inner, outer, size) {
+  size = size || 128;
+  var c = document.createElement('canvas');
+  c.width = c.height = size;
+  var ctx = c.getContext('2d');
+  var g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, inner);
+  g.addColorStop(0.1, inner);
+  g.addColorStop(0.5, outer);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(c);
+}
+
+function createArmParticles() {
+  var armCount = 3;
+  var perArm = 120;
+  var maxR = 15;
+  var loops = 2.2;
+  var thick = 0.8;
+  var total = armCount * perArm;
+  var pos = new Float32Array(total * 3);
+  var col = new Float32Array(total * 3);
+
+  for (var a = 0; a < armCount; a++) {
+    var ba = (a / armCount) * Math.PI * 2;
+    for (var i = 0; i < perArm; i++) {
+      var idx = a * perArm + i;
+      var t = i / perArm;
+      var r = t * maxR + (Math.random() - 0.5) * 0.4 * (1 + t);
+      var angle = ba + t * loops * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+      pos[idx * 3] = Math.cos(angle) * r;
+      pos[idx * 3 + 1] = (Math.random() - 0.5) * thick * (1 - t * 0.6 - 0.2);
+      pos[idx * 3 + 2] = Math.sin(angle) * r;
+
+      var hue = (0.13 + t * 0.45 + (Math.random() - 0.5) * 0.04) % 1;
+      var color = new THREE.Color();
+      color.setHSL(hue, 0.65 + Math.random() * 0.2, 0.5 + t * 0.35 + Math.random() * 0.15);
+      col[idx * 3] = color.r;
+      col[idx * 3 + 1] = color.g;
+      col[idx * 3 + 2] = color.b;
+    }
+  }
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+
+  var tex = createGlowTexture('rgba(255,255,255,1)', 'rgba(180,200,255,0)');
+  var mat = new THREE.PointsMaterial({
+    size: 0.22,
+    map: tex,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.9
+  });
+
+  return {
+    points: new THREE.Points(geo, mat),
+    geometry: geo,
+    original: new Float32Array(pos)
+  };
+}
+
+function createDustParticles() {
+  var count = 200;
+  var maxR = 15;
+  var pos = new Float32Array(count * 3);
+  var col = new Float32Array(count * 3);
+
+  for (var i = 0; i < count; i++) {
+    var r = Math.pow(Math.random(), 0.5) * maxR;
+    var angle = Math.random() * Math.PI * 2;
+    pos[i * 3] = Math.cos(angle) * r;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * 0.24;
+    pos[i * 3 + 2] = Math.sin(angle) * r;
+
+    var color = new THREE.Color();
+    color.setHSL((0.55 + Math.random() * 0.2) % 1, 0.3 + Math.random() * 0.3, 0.3 + Math.random() * 0.4);
+    col[i * 3] = color.r;
+    col[i * 3 + 1] = color.g;
+    col[i * 3 + 2] = color.b;
+  }
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+
+  var tex = createGlowTexture('rgba(200,220,255,0.6)', 'rgba(100,150,255,0)');
+  var mat = new THREE.PointsMaterial({
+    size: 0.14,
+    map: tex,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.5
+  });
+
+  return new THREE.Points(geo, mat);
+}
+
+function createBgStars() {
+  var count = 400;
+  var radius = 50;
+  var pos = new Float32Array(count * 3);
+
+  for (var i = 0; i < count; i++) {
+    var theta = Math.random() * Math.PI * 2;
+    var phi = Math.acos(2 * Math.random() - 1);
+    var r = radius * (0.6 + Math.random() * 0.4);
+    pos[i * 3] = Math.sin(phi) * Math.cos(theta) * r;
+    pos[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * r;
+    pos[i * 3 + 2] = Math.cos(phi) * r;
+  }
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+  var mat = new THREE.PointsMaterial({
+    size: 0.25,
+    color: 0x8899cc,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    transparent: true,
+    opacity: 0.65
+  });
+
+  return new THREE.Points(geo, mat);
+}
+
+function createCore() {
+  var tex = createGlowTexture('rgba(255,220,160,1)', 'rgba(200,140,200,0)', 256);
+  var mat = new THREE.SpriteMaterial({
+    map: tex,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    transparent: true
+  });
+  var sprite = new THREE.Sprite(mat);
+  sprite.scale.set(5.5, 5.5, 1);
+  return sprite;
+}
+
+function createNearStars() {
+  var count = 200;
+  var pos = new Float32Array(count * 3);
+  var col = new Float32Array(count * 3);
+
+  for (var i = 0; i < count; i++) {
+    var r = 18 + Math.random() * 30;
+    var theta = Math.random() * Math.PI * 2;
+    var phi = (Math.random() - 0.5) * Math.PI * 0.5;
+    pos[i * 3] = Math.cos(theta) * Math.cos(phi) * r;
+    pos[i * 3 + 1] = Math.sin(phi) * r * 0.4;
+    pos[i * 3 + 2] = Math.sin(theta) * Math.cos(phi) * r;
+
+    var color = new THREE.Color();
+    color.setHSL(0.5 + Math.random() * 0.2, 0.2, 0.4 + Math.random() * 0.5);
+    col[i * 3] = color.r;
+    col[i * 3 + 1] = color.g;
+    col[i * 3 + 2] = color.b;
+  }
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+
+  var mat = new THREE.PointsMaterial({
+    size: 0.35,
+    map: createGlowTexture('rgba(200,220,255,0.8)', 'rgba(100,150,255,0)'),
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.7
+  });
+
+  return new THREE.Points(geo, mat);
+}
+
+var armData = createArmParticles();
+scene.add(createBgStars());
+scene.add(createNearStars());
+scene.add(armData.points);
+scene.add(createDustParticles());
+scene.add(createCore());
+
+var mouseNDC = new THREE.Vector2(-999, -999);
+var mouseOnScreen = false;
+var repelPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+var raycaster = new THREE.Raycaster();
+var mouseWorld = new THREE.Vector3();
+var REPEL_RADIUS = 4.5;
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+
+  var posAttr = armData.geometry.attributes.position;
+  var posArr = posAttr.array;
+  var orig = armData.original;
+  var count = orig.length / 3;
+
+  if (mouseOnScreen) {
+    raycaster.setFromCamera(mouseNDC, camera);
+    var hit = raycaster.ray.intersectPlane(repelPlane, mouseWorld);
+
+    if (hit) {
+      for (var i = 0; i < count; i++) {
+        var px = posArr[i * 3];
+        var pz = posArr[i * 3 + 2];
+        var dx = px - mouseWorld.x;
+        var dz = pz - mouseWorld.z;
+        var distSq = dx * dx + dz * dz;
+
+        if (distSq < REPEL_RADIUS * REPEL_RADIUS && distSq > 0.0001) {
+          var dist = Math.sqrt(distSq);
+          var force = (1 - dist / REPEL_RADIUS) * 0.7;
+          var f = force * force * 4.5;
+          posArr[i * 3] += (dx / dist) * f;
+          posArr[i * 3 + 2] += (dz / dist) * f;
+        } else {
+          posArr[i * 3] += (orig[i * 3] - posArr[i * 3]) * 0.05;
+          posArr[i * 3 + 1] += (orig[i * 3 + 1] - posArr[i * 3 + 1]) * 0.05;
+          posArr[i * 3 + 2] += (orig[i * 3 + 2] - posArr[i * 3 + 2]) * 0.05;
+        }
+      }
+    } else {
+      for (var j = 0; j < count; j++) {
+        posArr[j * 3] += (orig[j * 3] - posArr[j * 3]) * 0.05;
+        posArr[j * 3 + 1] += (orig[j * 3 + 1] - posArr[j * 3 + 1]) * 0.05;
+        posArr[j * 3 + 2] += (orig[j * 3 + 2] - posArr[j * 3 + 2]) * 0.05;
+      }
+    }
+  } else {
+    for (var k = 0; k < count; k++) {
+      posArr[k * 3] += (orig[k * 3] - posArr[k * 3]) * 0.05;
+      posArr[k * 3 + 1] += (orig[k * 3 + 1] - posArr[k * 3 + 1]) * 0.05;
+      posArr[k * 3 + 2] += (orig[k * 3 + 2] - posArr[k * 3 + 2]) * 0.05;
+    }
+  }
+
+  posAttr.needsUpdate = true;
+  renderer.render(scene, camera);
+}
+
+animate();
+
+window.addEventListener('resize', function() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.addEventListener('pointermove', function(e) {
+  mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  mouseOnScreen = true;
+});
+
+window.addEventListener('pointerleave', function() {
+  mouseOnScreen = false;
+});
+
+renderer.domElement.addEventListener('pointerdown', function() {
+  hint.style.opacity = '0';
+});
+</script>
+
+</body>
+</html>
